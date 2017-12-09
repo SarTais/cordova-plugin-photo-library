@@ -28,9 +28,11 @@ public class PhotoLibrary extends CordovaPlugin {
   public static final double DEFAULT_QUALITY = 0.5;
 
   public static final String ACTION_GET_LIBRARY = "getLibrary";
+  public static final String ACTION_GET_ALBUM_LIBRARY = "getAlbumLibrary";
   public static final String ACTION_GET_ALBUMS = "getAlbums";
   public static final String ACTION_GET_THUMBNAIL = "getThumbnail";
   public static final String ACTION_GET_PHOTO = "getPhoto";
+  public static final String ACTION_GET_LIBRARY_ITEM_BY_ID = "getLibraryItemById";
   public static final String ACTION_STOP_CACHING = "stopCaching";
   public static final String ACTION_REQUEST_AUTHORIZATION = "requestAuthorization";
   public static final String ACTION_SAVE_IMAGE = "saveImage";
@@ -53,7 +55,7 @@ public class PhotoLibrary extends CordovaPlugin {
 
     try {
 
-      if (ACTION_GET_LIBRARY.equals(action)) {
+      if (ACTION_GET_LIBRARY.equals(action) || ACTION_GET_ALBUM_LIBRARY.equals(action) ) {
         cordova.getThreadPool().execute(new Runnable() {
           public void run() {
             try {
@@ -167,7 +169,32 @@ public class PhotoLibrary extends CordovaPlugin {
           }
         });
         return true;
+      } else if (ACTION_GET_LIBRARY_ITEM_BY_ID.equals(action)) {
+        cordova.getThreadPool().execute(new Runnable() {
+          public void run() {
+            try {
 
+              final String imageId = args.getString(0);
+
+              if (!cordova.hasPermission(READ_EXTERNAL_STORAGE)) {
+                callbackContext.error(service.PERMISSION_ERROR);
+                return;
+              }
+
+              JSONObject libraryItem = service.getLibraryItemById(getContext(), imageId);
+              if (libraryItem != null) {
+                PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, libraryItem);
+                callbackContext.sendPluginResult(pluginResult);
+              } else {
+                callbackContext.error("Couldn't find image");
+              }
+            } catch (Exception e) {
+              e.printStackTrace();
+              callbackContext.error(e.getMessage());
+            }
+          }
+        });
+        return true;
       } else if (ACTION_STOP_CACHING.equals(action)) {
 
         // Nothing to do - it's ios only functionality

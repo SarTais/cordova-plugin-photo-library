@@ -113,7 +113,6 @@ final class PhotoLibraryService {
             }
         }
         
-        // let fetchResult = PHAsset.fetchAssets(with: .image, options: self.fetchOptions)
         if(options.includeImages == true && options.includeVideos == true) {
             fetchOptions.predicate = NSPredicate(format: "mediaType == %d || mediaType == %d",
                                                  PHAssetMediaType.image.rawValue,
@@ -129,68 +128,109 @@ final class PhotoLibraryService {
                                                      PHAssetMediaType.video.rawValue)
             }
         }
-        
-        let fetchResult = PHAsset.fetchAssets(with: fetchOptions)
+		
+		var chunk = [NSDictionary]()
+		var chunkStartTime = NSDate()
+		var chunkNum = 0
+		var is_complete = false
+				
+		for assetCollectionType in assetCollectionTypes {
+            let fetchRes = PHAssetCollection.fetchAssetCollections(with: assetCollectionType, subtype: .any, options: nil)
+            
+            fetchRes.enumerateObjects({ (assetCollection: PHAssetCollection, index1, stop) in
+				var fetchResult = PHAsset.fetchAssets(in: assetCollection!, options: fetchOptions)
 
+				fetchResult.enumerateObjects({ (asset: PHAsset, index2, stop) in
 
+					let libraryItem = self.assetToLibraryItem(asset: asset, useOriginalFileNames: options.useOriginalFileNames, albumId: assetCollection.localIdentifier)
+
+					chunk.append(libraryItem)
+					
+					if (index2 == fetchResult.count - 1 && index1 == fetchRes.count) { // Last item
+						is_complete = true
+						completion(chunk, chunkNum, true)
+					} 
+					else if (options.itemsInChunk > 0 && chunk.count == options.itemsInChunk) {
+						completion(chunk, chunkNum, false)
+						chunkNum += 1
+						chunk = [NSDictionary]()
+						chunkStartTime = NSDate()
+					}
+				})
+            })
+        }
+		
+		if (!is_complete) {
+		    completion(chunk, chunkNum, true)
+		}
+    }
+    
+	// will fetch images by album id
+	func getAlbumLibrary(_ options: PhotoLibraryGetLibraryOptions, completion: @escaping (_ result: [NSDictionary], _ chunkNum: Int, _ isLastChunk: Bool) -> Void) {
+
+        if(options.includeCloudData == false) {
+            if #available(iOS 9.0, *) {
+                // remove iCloud source type
+                fetchOptions.includeAssetSourceTypes = [.typeUserLibrary, .typeiTunesSynced]
+            }
+        }
         
-	// TODO: do not restart caching on multiple calls
-//        if fetchResult.count > 0 {
-//
-//            var assets = [PHAsset]()
-//            fetchResult.enumerateObjects({(asset, index, stop) in
-//                assets.append(asset)
-//            })
-//
-//            self.stopCaching()
-//            self.cachingImageManager.startCachingImages(for: assets, targetSize: CGSize(width: options.thumbnailWidth, height: options.thumbnailHeight), contentMode: self.contentMode, options: self.imageRequestOptions)
-//            self.cacheActive = true
-//        }
+        if(options.includeImages == true && options.includeVideos == true) {
+            fetchOptions.predicate = NSPredicate(format: "mediaType == %d || mediaType == %d",
+                                                 PHAssetMediaType.image.rawValue,
+                                                 PHAssetMediaType.video.rawValue)
+        } else {
+            if(options.includeImages == true) {
+                fetchOptions.predicate = NSPredicate(format: "mediaType == %d",
+                                                     PHAssetMediaType.image.rawValue)
+            } else if(options.includeVideos == true) {
+                fetchOptions.predicate = NSPredicate(format: "mediaType == %d",
+                                                     PHAssetMediaType.video.rawValue)
+            }
+        }
+        
+		let fetchResult:PHFetchResult<PHAsset>
+		
+		if(options.albumId == "any") {
+			fetchResult = PHAsset.fetchAssets(with: fetchOptions)
+		} else {
+			let ids = [options.albumId]
+			
+			let albums = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: ids, options: nil)
+			let album = albums.firstObject
+        
+			fetchResult = PHAsset.fetchAssets(in: album!, options: fetchOptions)
+		}
 
         var chunk = [NSDictionary]()
         var chunkStartTime = NSDate()
         var chunkNum = 0
+        var is_complete = false
 
         fetchResult.enumerateObjects({ (asset: PHAsset, index, stop) in
 
-            let libraryItem = self.assetToLibraryItem(asset: asset, useOriginalFileNames: options.useOriginalFileNames, includeAlbumData: options.includeAlbumData)
+            let libraryItem = self.assetToLibraryItem(asset: asset, useOriginalFileNames: false, albumId: options.albumId)
 
             chunk.append(libraryItem)
-            
-            self.getCompleteInfo(libraryItem, completion: { (fullPath) in
                 
-                libraryItem["filePath"] = fullPath
-            
-                if index == fetchResult.count - 1 { // Last item
-                    completion(chunk, chunkNum, true)
-                } else if (options.itemsInChunk > 0 && chunk.count == options.itemsInChunk) ||
-                    (options.chunkTimeSec > 0 && abs(chunkStartTime.timeIntervalSinceNow) >= options.chunkTimeSec) {
-                    completion(chunk, chunkNum, false)
-                    chunkNum += 1
-                    chunk = [NSDictionary]()
-                    chunkStartTime = NSDate()
-                }
-            })
-        })
-    }
-    
-    
-    
-    func mimeTypeForPath(path: String) -> String {
-        let url = NSURL(fileURLWithPath: path)
-        let pathExtension = url.pathExtension
-        
-        if let uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, pathExtension! as NSString, nil)?.takeRetainedValue() {
-            if let mimetype = UTTypeCopyPreferredTagWithClass(uti, kUTTagClassMIMEType)?.takeRetainedValue() {
-                return mimetype as String
+            if index == fetchResult.count - 1 { // Last item
+			    is_complete = true
+                completion(chunk, chunkNum, true)
+            } else if (options.itemsInChunk > 0 && chunk.count == options.itemsInChunk) {
+                completion(chunk, chunkNum, false)
+                chunkNum += 1
+                chunk = [NSDictionary]()
+                chunkStartTime = NSDate()
             }
-        }
-        return "application/octet-stream"
+        })
+		
+		if (!is_complete) {
+		    completion(chunk, chunkNum, true)
+		}
     }
-    
-    
-    func getCompleteInfo(_ libraryItem: NSDictionary, completion: @escaping (_ fullPath: String?) -> Void) {
-        
+
+    // getting photo path in file stystem by image id
+    func getPhotoPath(_ libraryItem: NSDictionary, completion: @escaping (_ fullPath: String?) -> Void) {        
         
         let ident = libraryItem.object(forKey: "id") as! String
         let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [ident], options: self.fetchOptions)
@@ -215,6 +255,55 @@ final class PhotoLibraryService {
                         completion(nil)
                     }
                     else {
+                        let file_url:URL = info!["PHImageFileURLKey"] as! URL
+                        completion(file_url.relativePath)
+                    }
+                }
+            }
+            else {
+                completion(nil) // unknown
+            }
+        })
+    }
+    
+    
+    func mimeTypeForPath(path: String) -> String {
+        let url = NSURL(fileURLWithPath: path)
+        let pathExtension = url.pathExtension
+        
+        if let uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, pathExtension! as NSString, nil)?.takeRetainedValue() {
+            if let mimetype = UTTypeCopyPreferredTagWithClass(uti, kUTTagClassMIMEType)?.takeRetainedValue() {
+                return mimetype as String
+            }
+        }
+        return "application/octet-stream"
+    }
+    
+    func getLibraryItemById(_ itemId: String, completion: @escaping (_ result: NSDictionary?) -> Void) {
+
+        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [itemId], options: self.fetchOptions)
+
+        if fetchResult.count == 0 {
+            completion(nil)
+            return
+        }
+
+        let img = fetchResult.firstObject
+        completion(self.assetToLibraryItem(asset: img, useOriginalFileNames: false, albumId: "") as! NSDictionary)
+    }
+    
+    func getCompleteInfo(_ libraryItem: NSDictionary, _ asset: PHAsset, completion: @escaping (_ fullPath: String?) -> Void) {
+        
+        let mime_type = libraryItem.object(forKey: "mimeType") as! String
+        let mediaType = mime_type.components(separatedBy: "/").first
+            
+            if(mediaType == "image") {
+                PHImageManager.default().requestImageData(for: asset, options: self.imageRequestOptions) {
+                    (imageData: Data?, dataUTI: String?, orientation: UIImageOrientation, info: [AnyHashable: Any]?) in
+                    
+                    if(imageData == nil) {
+                        completion(nil)
+                    } else {
                         let file_url:URL = info!["PHImageFileURLKey"] as! URL
 //                        let mime_type = self.mimeTypes[file_url.pathExtension.lowercased()]!
                         completion(file_url.relativePath)
@@ -244,13 +333,13 @@ final class PhotoLibraryService {
             else {
                 completion(nil) // unknown
             }
-        })
     }
     
     
-    private func assetToLibraryItem(asset: PHAsset, useOriginalFileNames: Bool, includeAlbumData: Bool) -> NSMutableDictionary {
+    private func assetToLibraryItem(asset: PHAsset, useOriginalFileNames: Bool, albumId: String) -> NSMutableDictionary {
         let libraryItem = NSMutableDictionary()
         
+		libraryItem["albumIds"] = [albumId]
         libraryItem["id"] = asset.localIdentifier
         libraryItem["fileName"] = useOriginalFileNames ? asset.originalFileName : asset.fileName // originalFilename is much slower
         libraryItem["width"] = asset.pixelWidth
@@ -263,19 +352,6 @@ final class PhotoLibraryService {
         if let location = asset.location {
             libraryItem["latitude"] = location.coordinate.latitude
             libraryItem["longitude"] = location.coordinate.longitude
-        }
-        
-        
-        if includeAlbumData {
-            // This is pretty slow, use only when needed
-            var assetCollectionIds = [String]()
-            for assetCollectionType in self.assetCollectionTypes {
-                let albumsOfAsset = PHAssetCollection.fetchAssetCollectionsContaining(asset, with: assetCollectionType, options: nil)
-                albumsOfAsset.enumerateObjects({ (assetCollection: PHAssetCollection, index, stop) in
-                    assetCollectionIds.append(assetCollection.localIdentifier)
-                })
-            }
-            libraryItem["albumIds"] = assetCollectionIds
         }
         
         return libraryItem
@@ -509,7 +585,7 @@ final class PhotoLibraryService {
         do {
             sourceData = try getDataFromURL(url)
         } catch {
-            completion(nil, "\(String(describing: error))")
+            completion(nil, "\(error)")
             return
         }
 
@@ -519,7 +595,7 @@ final class PhotoLibraryService {
             assetsLibrary.writeImageData(toSavedPhotosAlbum: sourceData, metadata: nil) { (assetUrl: URL?, error: Error?) in
 
                 if error != nil {
-                    completion(nil, "Could not write image to album: \(String(describing: error))")
+                    completion(nil, "Could not write image to album: \(error)")
                     return
                 }
 
@@ -537,7 +613,8 @@ final class PhotoLibraryService {
                         if fetchResult.count == 1 {
                             let asset = fetchResult.firstObject
                             if let asset = asset {
-                                libraryItem = self.assetToLibraryItem(asset: asset, useOriginalFileNames: false, includeAlbumData: true)
+							    // "123" - dumb value
+                                libraryItem = self.assetToLibraryItem(asset: asset, useOriginalFileNames: false, albumId: "123")
                             }
                         }
                         completion(libraryItem, nil)
@@ -594,7 +671,7 @@ final class PhotoLibraryService {
             assetsLibrary.writeVideoAtPath(toSavedPhotosAlbum: videoURL) { (assetUrl: URL?, error: Error?) in
 
                 if error != nil {
-                    completion(nil, "Could not write video to album: \(String(describing: error))")
+                    completion(nil, "Could not write video to album: \(error)")
                     return
                 }
 
@@ -688,7 +765,7 @@ final class PhotoLibraryService {
             PhotoLibraryService.getAlPhotoAlbum(assetsLibrary, album: album, completion: { (alPhotoAlbum: ALAssetsGroup?, error: String?) in
 
                 if error != nil {
-                    completion("getting photo album caused error: \(String(describing: error))")
+                    completion("getting photo album caused error: \(error)")
                     return
                 }
 
@@ -698,7 +775,7 @@ final class PhotoLibraryService {
             })
 
         }, failureBlock: { (error: Error?) in
-            completion("Could not retrieve saved asset: \(String(describing: error))")
+            completion("Could not retrieve saved asset: \(error)")
         })
 
     }
@@ -771,7 +848,7 @@ final class PhotoLibraryService {
                 completion(photoAlbum, nil)
             }
             else {
-                completion(nil, "\(String(describing: error))")
+                completion(nil, "\(error)")
             }
         }
     }

@@ -63,6 +63,13 @@ public class PhotoLibraryService {
     return instance;
   }
 
+  public void getAlbumLibrary(Context context, PhotoLibraryGetLibraryOptions options, ChunkResultRunnable completion) throws JSONException {
+
+    String whereClause = "";
+    queryLibrary(context, options.itemsInChunk, options.chunkTimeSec, options.includeAlbumData, whereClause, completion);
+
+  }
+
   public void getLibrary(Context context, PhotoLibraryGetLibraryOptions options, ChunkResultRunnable completion) throws JSONException {
 
     String whereClause = "";
@@ -319,6 +326,49 @@ public class PhotoLibraryService {
 
     return buffer;
 
+  }
+
+  public JSONObject getLibraryItemById(Context context, String imageId) throws JSONException {
+    JSONObject columns = new JSONObject() {{
+      put("int.id", MediaStore.Images.Media._ID);
+      put("fileName", MediaStore.Images.ImageColumns.DISPLAY_NAME);
+      put("int.width", MediaStore.Images.ImageColumns.WIDTH);
+      put("int.height", MediaStore.Images.ImageColumns.HEIGHT);
+      put("albumId", MediaStore.Images.ImageColumns.BUCKET_ID);
+      put("date.creationDate", MediaStore.Images.ImageColumns.DATE_TAKEN);
+      put("float.latitude", MediaStore.Images.ImageColumns.LATITUDE);
+      put("float.longitude", MediaStore.Images.ImageColumns.LONGITUDE);
+      put("nativeURL", MediaStore.MediaColumns.DATA); // will not be returned to javascript
+    }};
+    String whereClause = MediaStore.Images.Media._ID + " LIKE \"%" + imageId.split(";")[0] + "%\"";
+
+    final ArrayList<JSONObject> queryResults = queryContentProvider(context, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, columns, whereClause);
+    
+    if (queryResults.size() > 0) {
+      JSONObject queryResult = queryResults.get(0);
+
+      try {
+        int orientation = getImageOrientation(new File(queryResult.getString("nativeURL")));
+        if (isOrientationSwapsDimensions(orientation)) { // swap width and height
+          int tempWidth = queryResult.getInt("width");
+          queryResult.put("width", queryResult.getInt("height"));
+          queryResult.put("height", tempWidth);
+        }
+      } catch (IOException e) { /* Do nothing */ }
+      queryResult.put("id", queryResult.get("id") + ";" + queryResult.get("nativeURL"));
+
+      queryResult.remove("nativeURL"); // Not needed
+
+      String albumId = queryResult.getString("albumId");
+      queryResult.remove("albumId");
+      /* Add Album Data */
+      JSONArray albumsArray = new JSONArray();
+      albumsArray.put(albumId);
+      queryResult.put("albumIds", albumsArray);
+
+      return queryResult;
+    }
+    return null;
   }
 
   private void queryLibrary(Context context, String whereClause, ChunkResultRunnable completion) throws JSONException {

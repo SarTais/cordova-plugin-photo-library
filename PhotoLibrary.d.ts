@@ -3,6 +3,7 @@ declare module PhotoLibraryCordova {
   export interface Plugin {
 
     getLibrary(success: (chunk: { library: LibraryItem[], isLastChunk: boolean }) => void, error: (err: any) => void, options?: GetLibraryOptions): void;
+    getAlbumLibrary(success: (chunk: { library: LibraryItem[], isLastChunk: boolean }) => void, error: (err: any) => void, options?: GetLibraryOptions): void;
 
     requestAuthorization(success: () => void, error: (err: any) => void, options?: RequestAuthorizationOptions): void;
 
@@ -18,6 +19,9 @@ declare module PhotoLibraryCordova {
     getPhotoURL(libraryItem: LibraryItem, success: (result: string) => void, error: (err: any) => void, options?: GetPhotoOptions): void;
     getPhotoURL(photoId: string, options?: GetPhotoOptions): string; // Will not work in browser
     getPhotoURL(libraryItem: LibraryItem, options?: GetPhotoOptions): string; // Will not work in browser
+	
+    getPhotoPath(libraryItem: LibraryItem): string;
+    getLibraryItemById(imageId: String): LibraryItem;
 
     getThumbnail(photoId: string, success: (result: Blob) => void, error: (err: any) => void, options?: GetThumbnailOptions): void;
     getThumbnail(libraryItem: LibraryItem, success: (result: Blob) => void, error: (err: any) => void, options?: GetThumbnailOptions): void;
@@ -63,6 +67,7 @@ declare module PhotoLibraryCordova {
     includeAlbumData?: boolean;
     includeCloudData?: boolean;
     includeVideos?: boolean;
+    albumId?: string;
   }
 
   export interface RequestAuthorizationOptions {
